@@ -21,7 +21,7 @@ jobs:
         fetch-depth: 0        # 获取完整历史记录（某些版本需要）
 
     - name: Setup JDK 17 (Boot JDK)
-      uses: actions/setup-java@v3
+      uses: actions/setup-java@v4
       with:
         distribution: 'microsoft' # 或 'zulu'/'temurin'
         java-version: '17'
@@ -101,7 +101,7 @@ jobs:
         ls -lh ../*.zip
 
     - name: Upload JRE ZIP artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: jre-17u-zip
         path: |
