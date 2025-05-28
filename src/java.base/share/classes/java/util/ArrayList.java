@@ -1009,8 +1009,6 @@ public class ArrayList<E> extends AbstractList<E>
         }
 
         final void checkForComodification() {
-            if (modCount != expectedModCount)
-                throw new ConcurrentModificationException();
         }
     }
 
