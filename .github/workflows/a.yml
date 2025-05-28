@@ -1,0 +1,115 @@
+name: Build JRE 17u ZIP on Windows
+
+on:
+  workflow_dispatch: # 手动触发
+  push:
+    branches: [ master ] # 根据你的分支调整
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  build-jre-zip:
+    name: Build JRE 17u ZIP
+    runs-on: windows-latest # Windows 构建环境
+    timeout-minutes: 120    # 构建可能耗时较长
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive # 如果使用子模块
+        fetch-depth: 0        # 获取完整历史记录（某些版本需要）
+
+    - name: Setup JDK 17 (Boot JDK)
+      uses: actions/setup-java@v3
+      with:
+        distribution: 'microsoft' # 或 'zulu'/'temurin'
+        java-version: '17'
+
+    - name: Install Build Tools
+      run: |
+        # 安装必要的构建工具（使用 Chocolatey）
+        choco install -y visualstudio2022buildtools --package-parameters "--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
+        choco install -y freetype
+        choco install -y 7zip
+        choco install -y zip
+
+    - name: Configure environment
+      shell: cmd
+      run: |
+        # 设置 Visual Studio 环境
+        call "C:\Program Files\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvarsall.bat" x64
+
+    - name: Build OpenJDK
+      shell: bash
+      run: |
+        # 配置构建参数
+        bash configure --disable-warnings-as-errors \
+                       --with-version-opt="$(date +'%Y%m%d%H%M')" \
+                       --with-version-pre="" \
+                       --with-jvm-variants=server \
+                       --with-vendor-name="MyOrg" \
+                       --with-vendor-url="https://example.com" \
+                       --disable-docs \
+                       --with-native-debug-symbols=none
+        
+        # 开始构建 (使用并行加速)
+        make JOBS=4 images
+
+    - name: Extract and prepare JRE
+      shell: bash
+      run: |
+        # 定位构建输出目录
+        jdk_image_dir=$(find build -type d -name 'images' -path '*/jdk/*' | head -1)
+        
+        # 创建 JRE 目录结构
+        cd "$jdk_image_dir/jdk"
+        mkdir -p ../jre
+        
+        # 复制必要文件到 JRE
+        cp -r bin conf lib ../jre
+        
+        # 保留必要的可执行文件
+        cp bin/java.exe ../jre/bin/
+        cp bin/javaw.exe ../jre/bin/
+        cp bin/keytool.exe ../jre/bin/
+        
+        # 复制其他必要文件
+        cp -r legal release ../jre/
+        
+        # 清理不需要的文件
+        cd ../jre
+        rm -rf bin/*ja* bin/jfr bin/jpackage
+        rm -rf lib/src.zip lib/jfr
+        
+        # 创建版本文件
+        echo "JRE_VERSION=$(date +'%Y%m%d%H%M')" > version.txt
+
+    - name: Package JRE to ZIP
+      run: |
+        # 进入 JRE 目录
+        jdk_image_dir=$(find build -type d -name 'images' -path '*/jdk/*' | head -1)
+        cd "$jdk_image_dir/jre"
+        
+        # 获取版本信息
+        JRE_VERSION=$(cat version.txt | cut -d'=' -f2)
+        
+        # 创建 ZIP 包 (使用 7zip 获得更好压缩)
+        7z a -tzip "../jre-17u_$JRE_VERSION.zip" ./*
+        
+        # 显示生成的文件
+        ls -lh ../*.zip
+
+    - name: Upload JRE ZIP artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: jre-17u-zip
+        path: |
+          build/*/images/jre/jre-*.zip
+          build/*/images/jre/version.txt
+        retention-days: 5
+
+    # 可选：清理大文件释放空间
+    - name: Cleanup build files
+      if: always() # 即使失败也执行清理
+      run: rm -rf build
